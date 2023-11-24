@@ -37,8 +37,9 @@ struct Order {
     id: u64,
     title: String,
     client_id: u64,
-    supplier_id: u64,
+    supplier_id: Option<u64>,
     products: HashMap<String, u64>,
+    is_complete: bool,
     created_at: u64,
     updated_at: Option<u64>,
 }
@@ -117,24 +118,25 @@ thread_local! {
 
 #[derive(candid::CandidType, Serialize, Deserialize, Default)]
 struct ClientPayload {
-    name: String,
-    email: String,
-    phone: String,
+    name: Option<String>,
+    email: Option<String>,
+    phone: Option<String>,
 }
 
 #[derive(candid::CandidType, Serialize, Deserialize, Default)]
 struct SupplierPayload {
-    name: String,
-    email: String,
-    phone: String,
+    name: Option<String>,
+    email: Option<String>,
+    phone: Option<String>,
 }
 
 #[derive(candid::CandidType, Serialize, Deserialize, Default)]
 struct OrderPayload {
-    title: String,
-    client_id: u64,
-    supplier_id: u64,
+    title: Option<u64>,
+    client_id: Option<u64>,
+    supplier_id: Option<u64>,
     products: HashMap<String, u64>,
+    is_complete: bool,
 }
 
 #[ic_cdk::query]
@@ -233,8 +235,17 @@ fn get_order(id: u64) -> Result<Order, Error> {
     }
 }
 
-fn _get_order(id: u64) -> Option<Order> {
-    ORDERS.with(|orders| orders.borrow().get(&id).cloned())
+fn get_orders() -> Result<Vec<Order>, Error> {
+    let orders_map: Vec<(u64, Order)> = ORDERS.with(|service| service.borrow().iter().collect());
+    let orders: Vec<Order> = orders_map.into_iter().map(|(_, order)| order).collect();
+
+    if !orders.is_empty() {
+        Ok(orders)
+    } else {
+        Err(Error::NotFound {
+            msg: "No incomplete orders available.".to_string(),
+        })
+    }
 }
 
 #[ic_cdk::update]
@@ -251,8 +262,9 @@ fn add_order(payload: OrderPayload) -> Option<Order> {
         id,
         title: payload.title,
         client_id: payload.client_id,
-        supplier_id: payload.supplier_id,
+        supplier_id: payload.None,
         products: payload.products,
+        is_complete: false,
         created_at: time(),
         updated_at: None,
     };
@@ -262,8 +274,48 @@ fn add_order(payload: OrderPayload) -> Option<Order> {
     Some(order)
 }
 
+#[ic_cdk::update]
+fn update_order(payload: OrderPayload) -> Option<Order> {
+    let order = _get_order(&payload.id).expect("order does not exist");
+
+    let updated_order = Order {
+        id: order.id,
+        title: payload.title,
+        client_id: payload.client_id,
+        supplier_id: payload.supplier_id,
+        products: payload.products,
+        is_complete: payload.is_complete,
+        created_at: order.created_at,
+        updated_at: Some(time()),
+    };
+
+    _insert_order(updated_order);
+
+    if payload.is_complete {
+        _update_ids(order)
+    }
+
+    Some(updated_order)
+}
+
+fn _get_order(id: u64) -> Option<Order> {
+    ORDERS.with(|orders| orders.borrow().get(&id).cloned())
+}
+
 fn _insert_order(order: Order) {
     ORDERS.with(|orders| orders.borrow_mut().insert(order.id, order));
+}
+
+fn _update_ids(order: Order) {
+    CLIENT_STORAGE.with(|clients| {
+        let mut client = clients.borrow_mut().get_mut(&order.client_id).unwrap();
+        client.order_ids.push(order.id);
+    });
+
+    SUPPLIER_STORAGE.with(|suppliers| {
+        let mut supplier = suppliers.borrow_mut().get_mut(&order.supplier_id).unwrap();
+        supplier.order_ids.push(order.id);
+    });
 }
 
 #[derive(candid::CandidType, Deserialize, Serialize)]
