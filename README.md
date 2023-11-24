@@ -46,7 +46,7 @@ Each record contains relevant fields like IDs, names and timestamps.
 
 ## Memory Management
 
-Memory is allocated using a `MemoryManager` from the `ic-stable-structures` crate: 
+Memory is allocated using a `MemoryManager` from the `ic-stable-structures` crate:
 
 ```rust
 static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = // initialized
@@ -127,7 +127,7 @@ Deletes an order based on the provided ID. Returns the deleted order if successf
 
 Private helper functions handle data access:
 
-```rust 
+```rust
 fn _get_client(id: &u64) -> Option<Client> {
   // lookup client
 }
@@ -145,7 +145,7 @@ This provides a full-featured in-memory database with types and interfaces to ma
 
 ## Usage
 
-This canister provides functionality for managing clients, suppliers, and orders through a set of query and update functions. See the [Functions](#functions) section for details on available operations.
+This canister provides functionality for managing clients, suppliers, and orders through a set of query and update functions. See the [Functions](#main-functions) section for details on available operations.
 
 <!-- **Example:** -->
 
@@ -198,3 +198,4 @@ To learn more before you start working with supply_chain, see the following docu
 - [ic-cdk-macros](https://docs.rs/ic-cdk-macros)
 - [Candid Introduction](https://internetcomputer.org/docs/candid-guide/candid-intro)
 - [JavaScript API Reference](https://erxue-5aaaa-aaaab-qaagq-cai.raw.icp0.io)
+  
