@@ -5,6 +5,7 @@ use ic_cdk::api::time;
 use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemory};
 use ic_stable_structures::{BoundedStorable, Cell, DefaultMemoryImpl, StableBTreeMap, Storable};
 use std::collections::HashMap;
+// use std::fmt::format;
 use std::{borrow::Cow, cell::RefCell};
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
@@ -100,7 +101,7 @@ thread_local! {
             .expect("Cannot create a counter")
     );
 
-    static CLIENT_STORAGE: RefCell<StableBTreeMap<u64, Supplier, Memory>> =
+    static CLIENT_STORAGE: RefCell<StableBTreeMap<u64, Client, Memory>> =
         RefCell::new(StableBTreeMap::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(1)))
     ));
@@ -118,23 +119,23 @@ thread_local! {
 
 #[derive(candid::CandidType, Serialize, Deserialize, Default)]
 struct ClientPayload {
-    name: Option<String>,
-    email: Option<String>,
-    phone: Option<String>,
+    name: String,
+    email: String,
+    phone: String,
 }
 
 #[derive(candid::CandidType, Serialize, Deserialize, Default)]
 struct SupplierPayload {
-    name: Option<String>,
-    email: Option<String>,
-    phone: Option<String>,
+    name: String,
+    email: String,
+    phone: String,
 }
 
 #[derive(candid::CandidType, Serialize, Deserialize, Default)]
 struct OrderPayload {
-    title: Option<u64>,
-    client_id: Option<u64>,
-    supplier_id: Option<u64>,
+    title: String,
+    client_id: u64,
+    supplier_id: u64,
     products: HashMap<String, u64>,
     is_complete: bool,
 }
@@ -144,22 +145,19 @@ fn get_client(id: u64) -> Result<Client, Error> {
     match _get_client(&id) {
         Some(client) => Ok(client),
         None => Err(Error::NotFound {
-            msg: format!("client does not exist"),
+            msg: format!("client id:{} does not exist", id),
         }),
     }
 }
 
-fn _get_client(id: u64) -> Option<Client> {
-    CLIENT_STORAGE.with(|clients| clients.borrow().get(&id).cloned())
-}
+// Client
 
 #[ic_cdk::update]
 fn add_client(payload: ClientPayload) -> Option<Client> {
     let id = ID_COUNTER
         .with(|counter| {
-            let id = counter.borrow().get();
-            counter.borrow_mut().set(id + 1);
-            id
+            let current_id = *counter.borrow().get();
+            counter.borrow_mut().set(current_id + 1)
         })
         .expect("Cannot increment Ids");
 
@@ -173,36 +171,39 @@ fn add_client(payload: ClientPayload) -> Option<Client> {
         updated_at: None,
     };
 
-    _insert_client(client);
+    _insert_client(&client);
 
     Some(client)
 }
 
-fn _insert_client(client: Client) {
-    CLIENT_STORAGE.with(|clients| clients.borrow_mut().insert(client.id, client));
+// Client Helper functions
+
+fn _get_client(id: &u64) -> Option<Client> {
+    CLIENT_STORAGE.with(|clients| clients.borrow().get(&id))
 }
+
+fn _insert_client(client: &Client) {
+    CLIENT_STORAGE.with(|clients| clients.borrow_mut().insert(client.id, client.clone()));
+}
+
+// Supplier
 
 #[ic_cdk::query]
 fn get_supplier(id: u64) -> Result<Supplier, Error> {
     match _get_supplier(&id) {
         Some(supplier) => Ok(supplier),
         None => Err(Error::NotFound {
-            msg: format!("supplier does not exist"),
+            msg: format!("supplier id:{} does not exist", id),
         }),
     }
-}
-
-fn _get_supplier(id: u64) -> Option<Supplier> {
-    SUPPLIER_STORAGE.with(|suppliers| suppliers.borrow().get(&id).cloned())
 }
 
 #[ic_cdk::update]
 fn add_supplier(payload: SupplierPayload) -> Option<Supplier> {
     let id = ID_COUNTER
         .with(|counter| {
-            let id = counter.borrow().get();
-            counter.borrow_mut().set(id + 1);
-            id
+            let current_id = *counter.borrow().get();
+            counter.borrow_mut().set(current_id + 1)
         })
         .expect("Cannot increment Ids");
 
@@ -216,25 +217,34 @@ fn add_supplier(payload: SupplierPayload) -> Option<Supplier> {
         updated_at: None,
     };
 
-    _insert_supplier(supplier);
+    _insert_supplier(&supplier);
 
     Some(supplier)
 }
 
-fn _insert_supplier(supplier: Supplier) {
-    SUPPLIER_STORAGE.with(|suppliers| suppliers.borrow_mut().insert(supplier.id, supplier));
+// Supplier Helper functions
+
+fn _get_supplier(id: &u64) -> Option<Supplier> {
+    SUPPLIER_STORAGE.with(|suppliers| suppliers.borrow().get(&id))
 }
+
+fn _insert_supplier(supplier: &Supplier) {
+    SUPPLIER_STORAGE.with(|suppliers| suppliers.borrow_mut().insert(supplier.id, supplier.clone()));
+}
+
+// Orders
 
 #[ic_cdk::query]
 fn get_order(id: u64) -> Result<Order, Error> {
     match _get_order(&id) {
         Some(order) => Ok(order),
         None => Err(Error::NotFound {
-            msg: format!("order does not exist"),
+            msg: format!("order id:{} does not exist", id),
         }),
     }
 }
 
+#[ic_cdk::query]
 fn get_orders() -> Result<Vec<Order>, Error> {
     let orders_map: Vec<(u64, Order)> = ORDERS.with(|service| service.borrow().iter().collect());
     let orders: Vec<Order> = orders_map.into_iter().map(|(_, order)| order).collect();
@@ -252,9 +262,8 @@ fn get_orders() -> Result<Vec<Order>, Error> {
 fn add_order(payload: OrderPayload) -> Option<Order> {
     let id = ID_COUNTER
         .with(|counter| {
-            let id = counter.borrow().get();
-            counter.borrow_mut().set(id + 1);
-            id
+            let current_id = *counter.borrow().get();
+            counter.borrow_mut().set(current_id + 1)
         })
         .expect("Cannot increment Ids");
 
@@ -262,34 +271,58 @@ fn add_order(payload: OrderPayload) -> Option<Order> {
         id,
         title: payload.title,
         client_id: payload.client_id,
-        supplier_id: payload.None,
+        supplier_id: None,
         products: payload.products,
         is_complete: false,
         created_at: time(),
         updated_at: None,
     };
 
-    _insert_order(order);
+    _insert_order(&order);
 
     Some(order)
 }
 
 #[ic_cdk::update]
-fn update_order(payload: OrderPayload) -> Option<Order> {
-    let order = _get_order(&payload.id).expect("order does not exist");
+fn add_order_supplier(id: u64, supplier_id: u64) -> Result<Order, Error> {
+    match ORDERS.with(|service| service.borrow().get(&id)) {
+        Some(mut order) => {
+            order.id = order.id;
+            order.title = order.title;
+            order.client_id = order.client_id;
+            order.supplier_id = Some(supplier_id);
+            order.products = order.products;
+            order.is_complete = order.is_complete;
+            order.created_at = order.created_at;
+            order.updated_at = Some(time());
+
+            _insert_order(&order);
+            Ok(order)
+        }
+        None => Err(Error::NotFound {
+            msg: format!("couldn't update a order with id={}. order not found", id),
+        }),
+    }
+}
+
+#[ic_cdk::update]
+fn update_order(id: u64, payload: OrderPayload) -> Option<Order> {
+    let order = ORDERS
+        .with(|service| service.borrow().get(&id))
+        .expect("order does not exist");
 
     let updated_order = Order {
         id: order.id,
         title: payload.title,
         client_id: payload.client_id,
-        supplier_id: payload.supplier_id,
+        supplier_id: Some(payload.supplier_id),
         products: payload.products,
         is_complete: payload.is_complete,
         created_at: order.created_at,
         updated_at: Some(time()),
     };
 
-    _insert_order(updated_order);
+    _insert_order(&updated_order);
 
     if payload.is_complete {
         _update_ids(order)
@@ -298,24 +331,42 @@ fn update_order(payload: OrderPayload) -> Option<Order> {
     Some(updated_order)
 }
 
-fn _get_order(id: u64) -> Option<Order> {
-    ORDERS.with(|orders| orders.borrow().get(&id).cloned())
+#[ic_cdk::update]
+fn delete_order(id: u64) -> Result<Order, Error> {
+    match ORDERS.with(|orders| orders.borrow_mut().remove(&id)) {
+        Some(order) => Ok(order),
+        None => Err(Error::NotFound {
+            msg: format!("Order id:{} deletion unsuccesfull. Order Not found", id),
+        }),
+    }
 }
 
-fn _insert_order(order: Order) {
-    ORDERS.with(|orders| orders.borrow_mut().insert(order.id, order));
+// Order Helper functions
+
+fn _get_order(id: &u64) -> Option<Order> {
+    ORDERS.with(|orders| orders.borrow().get(&id))
+}
+
+fn _insert_order(order: &Order) {
+    ORDERS.with(|orders| orders.borrow_mut().insert(order.id, order.clone()));
 }
 
 fn _update_ids(order: Order) {
     CLIENT_STORAGE.with(|clients| {
-        let mut client = clients.borrow_mut().get_mut(&order.client_id).unwrap();
+        let mut client = clients.borrow_mut().get(&order.client_id).unwrap();
+
         client.order_ids.push(order.id);
     });
 
-    SUPPLIER_STORAGE.with(|suppliers| {
-        let mut supplier = suppliers.borrow_mut().get_mut(&order.supplier_id).unwrap();
-        supplier.order_ids.push(order.id);
-    });
+    if order.supplier_id.is_some() {
+        SUPPLIER_STORAGE.with(|suppliers| {
+            let mut supplier = match order.supplier_id {
+                Some(supplier_id) => suppliers.borrow_mut().get(&supplier_id).unwrap(),
+                None => panic!("Supplier ID is None"),
+            };
+            supplier.order_ids.push(order.id);
+        });
+    }
 }
 
 #[derive(candid::CandidType, Deserialize, Serialize)]

@@ -2,3 +2,4 @@
 members = [
     "src/supply_chain_backend",
 ]
+resolver = "2"

@@ -14,7 +14,8 @@
     "start": "webpack serve --mode development --env development",
     "deploy:local": "dfx deploy --network=local",
     "deploy:ic": "dfx deploy --network=ic",
-    "generate": "dfx generate supply_chain_backend"
+    "generate": "./did.sh && dfx generate",
+    "gen-deploy": "./did.sh && dfx generate && dfx deploy -y"
   },
   "dependencies": {
     "@dfinity/agent": "^0.20.1",

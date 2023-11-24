@@ -1,3 +1,42 @@
+type Client = record {
+  id : nat64;
+  updated_at : opt nat64;
+  name : text;
+  created_at : nat64;
+  email : text;
+  order_ids : vec nat64;
+  phone : text;
+};
+type ClientPayload = record { name : text; email : text; phone : text };
+type Error = variant { NotFound : record { msg : text } };
+type Order = record {
+  id : nat64;
+  is_complete : bool;
+  supplier_id : opt nat64;
+  title : text;
+  updated_at : opt nat64;
+  created_at : nat64;
+  client_id : nat64;
+  products : vec record { text; nat64 };
+};
+type OrderPayload = record {
+  is_complete : bool;
+  supplier_id : nat64;
+  title : text;
+  client_id : nat64;
+  products : vec record { text; nat64 };
+};
+type Result = variant { Ok : Order; Err : Error };
+type Result_1 = variant { Ok : Client; Err : Error };
+type Result_2 = variant { Ok : vec Order; Err : Error };
 service : {
-    "greet": (text) -> (text) query;
+  add_client : (ClientPayload) -> (opt Client);
+  add_order : (OrderPayload) -> (opt Order);
+  add_supplier : (ClientPayload) -> (opt Client);
+  delete_order : (nat64) -> (Result);
+  get_client : (nat64) -> (Result_1) query;
+  get_order : (nat64) -> (Result) query;
+  get_orders : () -> (Result_2) query;
+  get_supplier : (nat64) -> (Result_1) query;
+  update_order : (nat64, OrderPayload) -> (opt Order);
 }
