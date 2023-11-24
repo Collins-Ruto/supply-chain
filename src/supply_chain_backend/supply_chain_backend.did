@@ -32,7 +32,9 @@ type Result_2 = variant { Ok : vec Order; Err : Error };
 service : {
   add_client : (ClientPayload) -> (opt Client);
   add_order : (OrderPayload) -> (opt Order);
+  add_order_supplier : (nat64, nat64) -> (Result);
   add_supplier : (ClientPayload) -> (opt Client);
+  complete_order : (nat64) -> (Result);
   delete_order : (nat64) -> (Result);
   get_client : (nat64) -> (Result_1) query;
   get_order : (nat64) -> (Result) query;
