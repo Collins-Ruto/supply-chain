@@ -287,13 +287,7 @@ fn add_order(payload: OrderPayload) -> Option<Order> {
 fn add_order_supplier(id: u64, supplier_id: u64) -> Result<Order, Error> {
     match ORDERS.with(|service| service.borrow().get(&id)) {
         Some(mut order) => {
-            order.id = order.id;
-            order.title = order.title;
-            order.client_id = order.client_id;
             order.supplier_id = Some(supplier_id);
-            order.products = order.products;
-            order.is_complete = order.is_complete;
-            order.created_at = order.created_at;
             order.updated_at = Some(time());
 
             _insert_order(&order);
