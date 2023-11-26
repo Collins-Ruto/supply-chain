@@ -15,8 +15,8 @@ This Rust project implements a canister for managing suppliers, clients, and ord
 1. **Clone the repository:**
 
     ```bash
-    git clone https://github.com/your-username/your-repository.git
-    cd your-repository
+    git clone https://github.com/Collins-Ruto/supply-chain.git
+    cd supply-chain
     ```
 
 ## Data Structures
