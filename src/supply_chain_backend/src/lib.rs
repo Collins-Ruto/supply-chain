@@ -47,6 +47,15 @@ struct Order {
     created_at: u64,
     updated_at: Option<u64>,
 }
+#[derive(candid::CandidType, Deserialize, Default)]
+struct OrderFilterCriteria {
+    start_date: Option<u64>,
+    end_date: Option<u64>,
+    is_complete: Option<bool>,
+    client_id: Option<u64>,
+    supplier_id: Option<u64>,
+    product_type: Option<String>,
+}
 
 // Implement the 'Storable' trait for 'Client', 'Supplier', and 'Order'
 impl Storable for Client {
@@ -365,6 +374,160 @@ fn update_order(id: u64, payload: OrderPayload) -> Option<Order> {
 
     Some(updated_order) // Return the updated order
 }
+#[ic_cdk::query]
+fn filter_orders_by_criteria(criteria: OrderFilterCriteria) -> Result<Vec<Order>, Error> {
+    let filtered_orders: Vec<Order> = ORDERS.with(|orders| {
+        orders.borrow().iter()
+            .filter(|(_, order)| {
+                let matches_date = criteria.start_date.map_or(true, |start| order.created_at >= start)
+                    && criteria.end_date.map_or(true, |end| order.created_at <= end);
+                let matches_completion = criteria.is_complete.map_or(true, |status| order.is_complete == status);
+                let matches_client = criteria.client_id.map_or(true, |id| order.client_id == id);
+                let matches_supplier = criteria.supplier_id.map_or(true, |id| order.supplier_id == Some(id));
+                let matches_product = criteria.product_type.as_ref().map_or(true, |ptype| 
+                    order.products.iter().any(|(product, _)| product == ptype));
+
+                matches_date && matches_completion && matches_client && matches_supplier && matches_product
+            })
+            .map(|(_, order)| order.clone())
+            .collect()
+    });
+
+    if !filtered_orders.is_empty() {
+        Ok(filtered_orders)
+    } else {
+        Err(Error::NotFound {
+            msg: "No orders found matching the criteria.".to_string(),
+        })
+    }
+}
+#[ic_cdk::update]
+fn auto_update_order_status() -> Result<(), Error> {
+    let current_time = time();
+    let mut updated_orders = Vec::new();
+
+    ORDERS.with(|orders| {
+        for (id, order) in orders.borrow().iter() {
+            let mut updated_order = order.clone();
+
+            // Example condition: mark as complete if current time is past a certain threshold
+            if !updated_order.is_complete && updated_order.updated_at.unwrap_or(0) < current_time {
+                updated_order.is_complete = true;
+                updated_order.updated_at = Some(current_time);
+                updated_orders.push((id, updated_order));
+            }
+        }
+    });
+
+    // Update the orders in storage
+    for (id, order) in updated_orders {
+        ORDERS.with(|orders| {
+            orders.borrow_mut().insert(id, order);
+        });
+    }
+
+    Ok(())
+}
+#[ic_cdk::query]
+fn suggest_suppliers_for_client(client_id: u64) -> Result<Vec<Supplier>, Error> {
+    let mut suggested_suppliers = Vec::new();
+    let client_order_ids = get_client_order_ids(client_id)?;
+
+    // Collect all product types in the client's orders
+    let mut client_product_types: Vec<String> = Vec::new();
+    for order_id in client_order_ids {
+        if let Some(order) = ORDERS.with(|o| o.borrow().get(&order_id)) {
+            for product_type in order.products.keys() {
+                if !client_product_types.contains(product_type) {
+                    client_product_types.push(product_type.clone());
+                }
+            }
+        }
+    }
+
+    // Find suppliers who can provide these product types
+    SUPPLIER_STORAGE.with(|suppliers| {
+        for (_, supplier) in suppliers.borrow().iter() {
+            // Check if supplier has fulfilled similar orders
+            for order_id in &supplier.order_ids {
+                if let Some(order) = ORDERS.with(|o| o.borrow().get(order_id)) {
+                    for product_type in order.products.keys() {
+                        if client_product_types.contains(product_type) {
+                            suggested_suppliers.push(supplier.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    Ok(suggested_suppliers)
+}
+
+// Helper function to retrieve orders of a client
+fn get_client_order_ids(client_id: u64) -> Result<Vec<u64>, Error> {
+    let client = _get_client(&client_id).ok_or(Error::NotFound {
+        msg: format!("Client with id={} not found", client_id),
+    })?;
+
+    // Clone the IDs to avoid borrowing issues
+    let order_ids = client.order_ids.clone();
+    Ok(order_ids)
+}
+#[ic_cdk::query]
+fn analyze_client_engagement(client_id: u64) -> Result<ClientEngagementReport, Error> {
+    let client = _get_client(&client_id).ok_or(Error::NotFound {
+        msg: format!("Client with id={} not found", client_id),
+    })?;
+
+    // Initialize metrics
+    let mut total_orders = 0;
+    let mut product_types = std::collections::HashSet::new();
+    // Add more metrics as needed
+
+    // Analyze client's orders
+    for order_id in &client.order_ids {
+        if let Some(order) = ORDERS.with(|o| o.borrow().get(order_id)) {
+            total_orders += 1;
+            for product_type in order.products.keys() {
+                product_types.insert(product_type.clone());
+            }
+            // Include more analyses, e.g., feedback scores if available
+        }
+    }
+
+    // Compile the engagement report
+    let report = ClientEngagementReport {
+        client_id,
+        total_orders,
+        unique_product_types: product_types.len(),
+        // Add more fields to the report as needed
+    };
+
+    Ok(report)
+}
+
+// Helper struct for client engagement report
+#[derive(candid::CandidType, Serialize, Deserialize, Default)]
+struct ClientEngagementReport {
+    client_id: u64,
+    total_orders: u64,
+    unique_product_types: usize,
+    // Add more fields as needed for the report
+}
+
+// Add a helper function to get client by ID if not already implemented
+// fn _get_client(id: &u64) -> Option<Client> {
+//     CLIENT_STORAGE.with(|clients| clients.borrow().get(id)).cloned()
+// }
+
+
+
+
+
+
+
 
 #[ic_cdk::update]
 fn delete_order(id: u64) -> Result<Order, Error> {
@@ -404,6 +567,7 @@ fn _update_ids(order: Order) {
         });
     }
 }
+
 
 // Define an Error enum for handling errors
 #[derive(candid::CandidType, Deserialize, Serialize)]
