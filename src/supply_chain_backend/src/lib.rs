@@ -30,6 +30,7 @@ struct Supplier {
     name: String,
     email: String,
     phone: String,
+    prefered_items: Vec<String>,
     order_ids: Vec<u64>,
     created_at: u64,
     updated_at: Option<u64>,
@@ -42,6 +43,7 @@ struct Order {
     title: String,
     client_id: u64,
     supplier_id: Option<u64>,
+    item_types: Vec<String>,
     products: HashMap<String, u64>,
     is_complete: bool,
     created_at: u64,
@@ -134,6 +136,7 @@ struct SupplierPayload {
     name: String,
     email: String,
     phone: String,
+    prefered_items: Vec<String>,
 }
 
 #[derive(candid::CandidType, Serialize, Deserialize, Default)]
@@ -142,7 +145,14 @@ struct OrderPayload {
     client_id: u64,
     supplier_id: u64,
     products: HashMap<String, u64>,
+    items_types: Vec<String>,
     is_complete: bool,
+}
+
+#[derive(candid::CandidType, Deserialize, Serialize, Default)]
+struct AddOrderSupplierPayload {
+    order_id: u64,
+    supplier_id: u64,
 }
 
 // Define query function to get a client by ID
@@ -203,6 +213,25 @@ fn get_supplier(id: u64) -> Result<Supplier, Error> {
     }
 }
 
+#[ic_cdk::query]
+fn get_suppliers() -> Result<Vec<Supplier>, Error> {
+    // Retrieve all suppliers from the storage
+    let suppliers_map: Vec<(u64, Supplier)> =
+        SUPPLIER_STORAGE.with(|service| service.borrow().iter().collect());
+    let suppliers: Vec<Supplier> = suppliers_map
+        .into_iter()
+        .map(|(_, supplier)| supplier)
+        .collect();
+
+    if !suppliers.is_empty() {
+        Ok(suppliers) // Return the list of suppliers if not empty
+    } else {
+        Err(Error::NotFound {
+            msg: "No suppliers available.".to_string(),
+        }) // Return an error if no suppliers are found
+    }
+}
+
 #[ic_cdk::update]
 fn add_supplier(payload: SupplierPayload) -> Option<Supplier> {
     // Increment the global ID counter to get a new ID for the supplier
@@ -219,6 +248,7 @@ fn add_supplier(payload: SupplierPayload) -> Option<Supplier> {
         name: payload.name,
         email: payload.email,
         phone: payload.phone,
+        prefered_items: payload.prefered_items,
         order_ids: vec![],
         created_at: time(),
         updated_at: None,
@@ -265,7 +295,148 @@ fn get_orders() -> Result<Vec<Order>, Error> {
         Ok(orders) // Return the list of orders if not empty
     } else {
         Err(Error::NotFound {
+            msg: "No orders available.".to_string(),
+        }) // Return an error if no orders are found
+    }
+}
+
+#[ic_cdk::query]
+fn get_incomplete_orders() -> Result<Vec<Order>, Error> {
+    // Retrieve all orders from the storage
+    let orders_map: Vec<(u64, Order)> = ORDERS.with(|service| service.borrow().iter().collect());
+    let orders: Vec<Order> = orders_map
+        .into_iter()
+        .map(|(_, order)| order)
+        .filter(|order| !order.is_complete)
+        .collect();
+
+    if !orders.is_empty() {
+        Ok(orders) // Return the list of orders if not empty
+    } else {
+        Err(Error::NotFound {
             msg: "No incomplete orders available.".to_string(),
+        }) // Return an error if no orders are found
+    }
+}
+
+#[ic_cdk::query]
+fn get_supplier_preferred_orders(supplier_id: u64) -> Result<Vec<Order>, Error> {
+    // Retrieve the supplier's preferred items
+    let preferred_items = _get_supplier_preferred_items(supplier_id);
+
+    // Retrieve all orders from the storage
+    let orders_map: Vec<(u64, Order)> = ORDERS.with(|service| service.borrow().iter().collect());
+
+    // Filter the orders to only include those where the order_types match the supplier's preferred_items
+    let orders: Vec<Order> = orders_map
+        .into_iter()
+        .map(|(_, order)| order)
+        .filter(|order| {
+            preferred_items
+                .iter()
+                .any(|item| order.item_types.contains(item))
+        })
+        .collect();
+
+    if !orders.is_empty() {
+        Ok(orders) // Return the list of orders if not empty
+    } else {
+        Err(Error::NotFound {
+            msg: format!(
+                "No orders available matching supplier id:{} prefferences",
+                supplier_id
+            ),
+        }) // Return an error if no orders are found
+    }
+}
+
+fn _get_supplier_preferred_items(supplier_id: u64) -> Vec<String> {
+    // Retrieve the supplier from the storage
+    let supplier = SUPPLIER_STORAGE.with(|suppliers| suppliers.borrow().get(&supplier_id));
+
+    // Return the supplier's preferred items if the supplier is found
+    if let Some(supplier) = supplier {
+        supplier.prefered_items
+    } else {
+        vec![] // Return an empty vector if the supplier is not found
+    }
+}
+
+#[ic_cdk::query]
+fn get_completed_orders() -> Result<Vec<Order>, Error> {
+    // Retrieve all orders from the storage
+    let orders_map: Vec<(u64, Order)> = ORDERS.with(|service| service.borrow().iter().collect());
+    let orders: Vec<Order> = orders_map
+        .into_iter()
+        .map(|(_, order)| order)
+        .filter(|order| order.is_complete)
+        .collect();
+
+    if !orders.is_empty() {
+        Ok(orders) // Return the list of orders if not empty
+    } else {
+        Err(Error::NotFound {
+            msg: "No completed orders available.".to_string(),
+        }) // Return an error if no orders are found
+    }
+}
+
+#[ic_cdk::query]
+fn get_client_orders(client_id: u64) -> Result<Vec<Order>, Error> {
+    // Retrieve all orders from the storage
+    let orders_map: Vec<(u64, Order)> = ORDERS.with(|service| service.borrow().iter().collect());
+    let orders: Vec<Order> = orders_map
+        .into_iter()
+        .map(|(_, order)| order)
+        .filter(|order| order.client_id == client_id)
+        .collect();
+
+    if !orders.is_empty() {
+        Ok(orders) // Return the list of orders if not empty
+    } else {
+        Err(Error::NotFound {
+            msg: format!("No orders available for client id:{}", client_id),
+        }) // Return an error if no orders are found
+    }
+}
+
+#[ic_cdk::query]
+fn get_supplier_orders(supplier_id: u64) -> Result<Vec<Order>, Error> {
+    // Retrieve all orders from the storage
+    let orders_map: Vec<(u64, Order)> = ORDERS.with(|service| service.borrow().iter().collect());
+    let orders: Vec<Order> = orders_map
+        .into_iter()
+        .map(|(_, order)| order)
+        .filter(|order| order.supplier_id == Some(supplier_id))
+        .collect();
+
+    if !orders.is_empty() {
+        Ok(orders) // Return the list of orders if not empty
+    } else {
+        Err(Error::NotFound {
+            msg: format!("No orders available for supplier id:{}", supplier_id),
+        }) // Return an error if no orders are found
+    }
+}
+
+#[ic_cdk::query]
+fn get_supplier_completed_orders(supplier_id: u64) -> Result<Vec<Order>, Error> {
+    // Retrieve all orders from the storage
+    let orders_map: Vec<(u64, Order)> = ORDERS.with(|service| service.borrow().iter().collect());
+    let orders: Vec<Order> = orders_map
+        .into_iter()
+        .map(|(_, order)| order)
+        .filter(|order| order.supplier_id == Some(supplier_id) && order.is_complete)
+        .collect();
+
+    if !orders.is_empty() {
+        Ok(orders) // Return the list of orders if not empty
+    } else {
+        Err(Error::NotFound {
+            msg: format!(
+                "No completed orders available for supplier id:{}",
+                supplier_id
+            ),
         }) // Return an error if no orders are found
     }
 }
@@ -287,6 +458,7 @@ fn add_order(payload: OrderPayload) -> Option<Order> {
         client_id: payload.client_id,
         supplier_id: None,
         products: payload.products,
+        item_types: payload.items_types,
         is_complete: false,
         created_at: time(),
         updated_at: None,
@@ -299,12 +471,12 @@ fn add_order(payload: OrderPayload) -> Option<Order> {
 }
 
 #[ic_cdk::update]
-fn add_order_supplier(id: u64, supplier_id: u64) -> Result<Order, Error> {
+fn add_order_supplier(payload: AddOrderSupplierPayload) -> Result<Order, Error> {
     // Try to get the order with the given ID
-    match ORDERS.with(|service| service.borrow().get(&id)) {
+    match ORDERS.with(|service| service.borrow().get(&payload.order_id)) {
         Some(mut order) => {
             // Update the order with the supplied supplier ID and timestamp
-            order.supplier_id = Some(supplier_id);
+            order.supplier_id = Some(payload.supplier_id);
             order.updated_at = Some(time());
 
             // Insert the updated order back into the storage
@@ -313,7 +485,7 @@ fn add_order_supplier(id: u64, supplier_id: u64) -> Result<Order, Error> {
             Ok(order) // Return the updated order
         }
         None => Err(Error::NotFound {
-            msg: format!("couldn't update an order with id={}. order not found", id),
+            msg: format!("couldn't update an order with id={}. order not found", payload.order_id),
         }), // Return an error if the order is not found
     }
 }
@@ -350,6 +522,7 @@ fn update_order(id: u64, payload: OrderPayload) -> Option<Order> {
         title: payload.title,
         client_id: payload.client_id,
         supplier_id: Some(payload.supplier_id),
+        item_types: payload.items_types,
         products: payload.products,
         is_complete: payload.is_complete,
         created_at: order.created_at,
