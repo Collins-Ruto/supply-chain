@@ -561,6 +561,21 @@ fn complete_order(id: u64) -> Result<Order, Error> {
                     msg: format!("Order was already completed."),
                 });
             }
+            if !is_client_id_valid(&order.client_id) {
+                return Err(Error::NotFound {
+                    msg: format!("Client with id={} not found.", order.client_id),
+                });
+            }
+            if order.supplier_id.is_none() {
+                return Err(Error::NotFound {
+                    msg: format!("No Supplier set for this order."),
+                });
+            }
+            if !is_supplier_id_valid(&order.supplier_id.unwrap()) {
+                return Err(Error::NotFound {
+                    msg: format!("Supplier with id={} not found.", order.supplier_id.unwrap()),
+                });
+            }
             // Mark the order as complete and update the timestamp
             order.is_complete = true;
             order.updated_at = Some(time());
