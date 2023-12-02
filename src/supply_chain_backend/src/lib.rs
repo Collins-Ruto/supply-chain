@@ -6,6 +6,7 @@ use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemor
 use ic_stable_structures::{BoundedStorable, Cell, DefaultMemoryImpl, StableBTreeMap, Storable};
 use std::collections::HashMap;
 use std::{borrow::Cow, cell::RefCell};
+use validator::Validate;
 
 // Define type aliases for convenience
 type Memory = VirtualMemory<DefaultMemoryImpl>;
@@ -124,23 +125,30 @@ thread_local! {
 }
 
 // Define structs for payload data (used in update calls)
-#[derive(candid::CandidType, Serialize, Deserialize, Default)]
+#[derive(candid::CandidType, Serialize, Deserialize, Default, Validate)]
 struct ClientPayload {
+    #[validate(length(min = 3))]
     name: String,
     email: String,
+    // shortest international phone number possible is 7 digits and longest possible is 15 digits(international phone numbering plan (ITU-T E. 164))
+    #[validate(length(min = 7, max = 15))]
     phone: String,
 }
 
-#[derive(candid::CandidType, Serialize, Deserialize, Default)]
+#[derive(candid::CandidType, Serialize, Deserialize, Default, Validate)]
 struct SupplierPayload {
+    #[validate(length(min = 3))]
     name: String,
     email: String,
+    // shortest international phone number possible is 7 digits and longest possible is 15 digits(international phone numbering plan (ITU-T E. 164))
+    #[validate(length(min = 7, max = 15))]
     phone: String,
     prefered_items: Vec<String>,
 }
 
-#[derive(candid::CandidType, Serialize, Deserialize, Default)]
+#[derive(candid::CandidType, Serialize, Deserialize, Default, Validate)]
 struct OrderPayload {
+    #[validate(length(min = 1))]
     title: String,
     client_id: u64,
     supplier_id: u64,
@@ -168,7 +176,13 @@ fn get_client(id: u64) -> Result<Client, Error> {
 
 // Update function to add a client
 #[ic_cdk::update]
-fn add_client(payload: ClientPayload) -> Option<Client> {
+fn add_client(payload: ClientPayload) -> Result<Client, Error> {
+    let check_payload = payload.validate();
+    if check_payload.is_err() {
+        return Err(Error::InvalidPayload {
+            msg: check_payload.unwrap_err().to_string(),
+        });
+    }
     let id = ID_COUNTER
         .with(|counter| {
             let current_id = *counter.borrow().get();
@@ -188,7 +202,7 @@ fn add_client(payload: ClientPayload) -> Option<Client> {
 
     _insert_client(&client);
 
-    Some(client)
+    Ok(client)
 }
 
 // Helper function to get a client by ID
@@ -233,7 +247,13 @@ fn get_suppliers() -> Result<Vec<Supplier>, Error> {
 }
 
 #[ic_cdk::update]
-fn add_supplier(payload: SupplierPayload) -> Option<Supplier> {
+fn add_supplier(payload: SupplierPayload) -> Result<Supplier, Error> {
+    let check_payload = payload.validate();
+    if check_payload.is_err() {
+        return Err(Error::InvalidPayload {
+            msg: check_payload.unwrap_err().to_string(),
+        });
+    }
     // Increment the global ID counter to get a new ID for the supplier
     let id = ID_COUNTER
         .with(|counter| {
@@ -257,7 +277,7 @@ fn add_supplier(payload: SupplierPayload) -> Option<Supplier> {
     // Insert the new supplier into the storage
     _insert_supplier(&supplier);
 
-    Some(supplier) // Return the newly added supplier
+    Ok(supplier) // Return the newly added supplier
 }
 
 // Supplier Helper functions
@@ -321,6 +341,11 @@ fn get_incomplete_orders() -> Result<Vec<Order>, Error> {
 
 #[ic_cdk::query]
 fn get_supplier_preferred_orders(supplier_id: u64) -> Result<Vec<Order>, Error> {
+    if !is_supplier_id_valid(&supplier_id) {
+        return Err(Error::NotFound {
+            msg: format!("Supplier with id={} not found.", supplier_id),
+        });
+    }
     // Retrieve the supplier's preferred items
     let preferred_items = _get_supplier_preferred_items(supplier_id);
 
@@ -383,6 +408,12 @@ fn get_completed_orders() -> Result<Vec<Order>, Error> {
 
 #[ic_cdk::query]
 fn get_client_orders(client_id: u64) -> Result<Vec<Order>, Error> {
+    if !is_client_id_valid(&client_id) {
+        return Err(Error::NotFound {
+            msg: format!("Client with id={} not found.", client_id),
+        });
+    }
+
     // Retrieve all orders from the storage
     let orders_map: Vec<(u64, Order)> = ORDERS.with(|service| service.borrow().iter().collect());
     let orders: Vec<Order> = orders_map
@@ -402,6 +433,11 @@ fn get_client_orders(client_id: u64) -> Result<Vec<Order>, Error> {
 
 #[ic_cdk::query]
 fn get_supplier_orders(supplier_id: u64) -> Result<Vec<Order>, Error> {
+    if !is_supplier_id_valid(&supplier_id) {
+        return Err(Error::NotFound {
+            msg: format!("Supplier with id={} not found.", supplier_id),
+        });
+    }
     // Retrieve all orders from the storage
     let orders_map: Vec<(u64, Order)> = ORDERS.with(|service| service.borrow().iter().collect());
     let orders: Vec<Order> = orders_map
@@ -421,6 +457,11 @@ fn get_supplier_orders(supplier_id: u64) -> Result<Vec<Order>, Error> {
 
 #[ic_cdk::query]
 fn get_supplier_completed_orders(supplier_id: u64) -> Result<Vec<Order>, Error> {
+    if !is_supplier_id_valid(&supplier_id) {
+        return Err(Error::NotFound {
+            msg: format!("Supplier with id={} not found.", supplier_id),
+        });
+    }
     // Retrieve all orders from the storage
     let orders_map: Vec<(u64, Order)> = ORDERS.with(|service| service.borrow().iter().collect());
     let orders: Vec<Order> = orders_map
@@ -440,9 +481,20 @@ fn get_supplier_completed_orders(supplier_id: u64) -> Result<Vec<Order>, Error> 
         }) // Return an error if no orders are found
     }
 }
-
+// Function to create an order
 #[ic_cdk::update]
-fn add_order(payload: OrderPayload) -> Option<Order> {
+fn add_order(payload: OrderPayload) -> Result<Order, Error> {
+    let check_payload = payload.validate();
+    if check_payload.is_err() {
+        return Err(Error::InvalidPayload {
+            msg: check_payload.unwrap_err().to_string(),
+        });
+    }
+    if !is_client_id_valid(&payload.client_id) {
+        return Err(Error::NotFound {
+            msg: format!("Client with id={} not found.", payload.client_id),
+        });
+    }
     // Increment the global ID counter to get a new ID for the order
     let id = ID_COUNTER
         .with(|counter| {
@@ -467,14 +519,20 @@ fn add_order(payload: OrderPayload) -> Option<Order> {
     // Insert the new order into the storage
     _insert_order(&order);
 
-    Some(order) // Return the newly added order
+    Ok(order) // Return the newly added order
 }
 
+// Function to add a suplier for an order
 #[ic_cdk::update]
 fn add_order_supplier(payload: AddOrderSupplierPayload) -> Result<Order, Error> {
     // Try to get the order with the given ID
     match ORDERS.with(|service| service.borrow().get(&payload.order_id)) {
         Some(mut order) => {
+            if !is_supplier_id_valid(&payload.supplier_id) {
+                return Err(Error::NotFound {
+                    msg: format!("Supplier with id={} not found.", payload.supplier_id),
+                });
+            }
             // Update the order with the supplied supplier ID and timestamp
             order.supplier_id = Some(payload.supplier_id);
             order.updated_at = Some(time());
@@ -485,22 +543,34 @@ fn add_order_supplier(payload: AddOrderSupplierPayload) -> Result<Order, Error> 
             Ok(order) // Return the updated order
         }
         None => Err(Error::NotFound {
-            msg: format!("couldn't update an order with id={}. order not found", payload.order_id),
+            msg: format!(
+                "couldn't update an order with id={}. order not found",
+                payload.order_id
+            ),
         }), // Return an error if the order is not found
     }
 }
-
+// Function to complete an order
 #[ic_cdk::update]
 fn complete_order(id: u64) -> Result<Order, Error> {
     // Try to get the order with the given ID
     match ORDERS.with(|service| service.borrow().get(&id)) {
         Some(mut order) => {
+            if order.is_complete {
+                return Err(Error::AlreadyCompleted {
+                    msg: format!("Order was already completed."),
+                });
+            }
             // Mark the order as complete and update the timestamp
             order.is_complete = true;
             order.updated_at = Some(time());
 
             // Insert the updated order back into the storage
             _insert_order(&order);
+
+            if order.is_complete {
+                _update_ids(order.clone()) // Update IDs if the order is marked as complete
+            }
             Ok(order) // Return the completed order
         }
         None => Err(Error::NotFound {
@@ -508,13 +578,31 @@ fn complete_order(id: u64) -> Result<Order, Error> {
         }), // Return an error if the order is not found
     }
 }
-
+// Function to update an order
 #[ic_cdk::update]
-fn update_order(id: u64, payload: OrderPayload) -> Option<Order> {
+fn update_order(id: u64, payload: OrderPayload) -> Result<Order, Error> {
     // Try to get the existing order with the given ID
     let order = ORDERS
         .with(|service| service.borrow().get(&id))
         .expect("order does not exist");
+
+    let check_payload = payload.validate();
+    if check_payload.is_err() {
+        return Err(Error::InvalidPayload {
+            msg: check_payload.unwrap_err().to_string(),
+        });
+    }
+
+    if !is_client_id_valid(&payload.client_id) {
+        return Err(Error::NotFound {
+            msg: format!("Client with id={} not found.", payload.client_id),
+        });
+    }
+    if !is_supplier_id_valid(&payload.supplier_id) {
+        return Err(Error::NotFound {
+            msg: format!("Supplier with id={} not found.", payload.supplier_id),
+        });
+    }
 
     // Create an updated order based on the provided payload
     let updated_order = Order {
@@ -524,7 +612,7 @@ fn update_order(id: u64, payload: OrderPayload) -> Option<Order> {
         supplier_id: Some(payload.supplier_id),
         item_types: payload.items_types,
         products: payload.products,
-        is_complete: payload.is_complete,
+        is_complete: order.is_complete,
         created_at: order.created_at,
         updated_at: Some(time()),
     };
@@ -532,11 +620,7 @@ fn update_order(id: u64, payload: OrderPayload) -> Option<Order> {
     // Insert the updated order into the storage
     _insert_order(&updated_order);
 
-    if payload.is_complete {
-        _update_ids(order) // Update IDs if the order is marked as complete
-    }
-
-    Some(updated_order) // Return the updated order
+    Ok(updated_order) // Return the updated order
 }
 
 #[ic_cdk::update]
@@ -563,25 +647,43 @@ fn _insert_order(order: &Order) {
 }
 
 fn _update_ids(order: Order) {
+    // Checks were already made to check whether client exists
+    let mut client = get_client(order.client_id).ok().unwrap();
+    client.order_ids.push(order.id);
     // Update the client's order IDs
-    CLIENT_STORAGE.with(|clients| {
-        let mut client = clients.borrow_mut().get(&order.client_id).unwrap();
-        client.order_ids.push(order.id);
-    });
+    CLIENT_STORAGE.with(|clients| clients.borrow_mut().insert(client.id, client.clone()));
 
-    // Update the supplier's order IDs if a supplier is associated with the order
-    if let Some(supplier_id) = order.supplier_id {
-        SUPPLIER_STORAGE.with(|suppliers| {
-            let mut supplier = suppliers.borrow_mut().get(&supplier_id).unwrap();
-            supplier.order_ids.push(order.id);
-        });
-    }
+    // Checks were already made to check whether supplier exists
+    let mut supplier = get_supplier(order.supplier_id.unwrap()).ok().unwrap();
+    supplier.order_ids.push(order.id);
+    // Update the supplier's order IDs
+    SUPPLIER_STORAGE.with(|suppliers| suppliers.borrow_mut().insert(supplier.id, supplier.clone()));
 }
 
+// Helper function to check whether a client with client_id exists
+fn is_client_id_valid(client_id: &u64) -> bool {
+    let client = get_client(client_id.clone());
+    if client.is_err() {
+        false
+    } else {
+        true
+    }
+}
+// Helper function to check whether a supplier with supplier_id exists
+fn is_supplier_id_valid(supplier_id: &u64) -> bool {
+    let supplier = get_supplier(supplier_id.clone());
+    if supplier.is_err() {
+        false
+    } else {
+        true
+    }
+}
 // Define an Error enum for handling errors
 #[derive(candid::CandidType, Deserialize, Serialize)]
 enum Error {
     NotFound { msg: String },
+    InvalidPayload { msg: String },
+    AlreadyCompleted { msg: String}
 }
 
 // Candid generator for exporting the Candid interface
