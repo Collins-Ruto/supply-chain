@@ -9,7 +9,11 @@ type Client = record {
   phone : text;
 };
 type ClientPayload = record { name : text; email : text; phone : text };
-type Error = variant { NotFound : record { msg : text } };
+type Error = variant {
+  InvalidPayload : record { msg : text };
+  NotFound : record { msg : text };
+  AlreadyCompleted : record { msg : text };
+};
 type Order = record {
   id : nat64;
   is_complete : bool;
@@ -29,10 +33,10 @@ type OrderPayload = record {
   client_id : nat64;
   products : vec record { text; nat64 };
 };
-type Result = variant { Ok : Order; Err : Error };
-type Result_1 = variant { Ok : Client; Err : Error };
-type Result_2 = variant { Ok : vec Order; Err : Error };
-type Result_3 = variant { Ok : Supplier; Err : Error };
+type Result = variant { Ok : Client; Err : Error };
+type Result_1 = variant { Ok : Order; Err : Error };
+type Result_2 = variant { Ok : Supplier; Err : Error };
+type Result_3 = variant { Ok : vec Order; Err : Error };
 type Result_4 = variant { Ok : vec Supplier; Err : Error };
 type Supplier = record {
   id : nat64;
@@ -51,22 +55,22 @@ type SupplierPayload = record {
   prefered_items : vec text;
 };
 service : {
-  add_client : (ClientPayload) -> (opt Client);
-  add_order : (OrderPayload) -> (opt Order);
-  add_order_supplier : (AddOrderSupplierPayload) -> (Result);
-  add_supplier : (SupplierPayload) -> (opt Supplier);
-  complete_order : (nat64) -> (Result);
-  delete_order : (nat64) -> (Result);
-  get_client : (nat64) -> (Result_1) query;
-  get_client_orders : (nat64) -> (Result_2) query;
-  get_completed_orders : () -> (Result_2) query;
-  get_incomplete_orders : () -> (Result_2) query;
-  get_order : (nat64) -> (Result) query;
-  get_orders : () -> (Result_2) query;
-  get_supplier : (nat64) -> (Result_3) query;
-  get_supplier_completed_orders : (nat64) -> (Result_2) query;
-  get_supplier_orders : (nat64) -> (Result_2) query;
-  get_supplier_preferred_orders : (nat64) -> (Result_2) query;
+  add_client : (ClientPayload) -> (Result);
+  add_order : (OrderPayload) -> (Result_1);
+  add_order_supplier : (AddOrderSupplierPayload) -> (Result_1);
+  add_supplier : (SupplierPayload) -> (Result_2);
+  complete_order : (nat64) -> (Result_1);
+  delete_order : (nat64) -> (Result_1);
+  get_client : (nat64) -> (Result) query;
+  get_client_orders : (nat64) -> (Result_3) query;
+  get_completed_orders : () -> (Result_3) query;
+  get_incomplete_orders : () -> (Result_3) query;
+  get_order : (nat64) -> (Result_1) query;
+  get_orders : () -> (Result_3) query;
+  get_supplier : (nat64) -> (Result_2) query;
+  get_supplier_completed_orders : (nat64) -> (Result_3) query;
+  get_supplier_orders : (nat64) -> (Result_3) query;
+  get_supplier_preferred_orders : (nat64) -> (Result_3) query;
   get_suppliers : () -> (Result_4) query;
-  update_order : (nat64, OrderPayload) -> (opt Order);
+  update_order : (nat64, OrderPayload) -> (Result_1);
 }
